@@ -1,0 +1,76 @@
+name: portfolio
+services:
+  gateway:
+    image: nginx:alpine
+    ports: ["80:80"]
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./felixsaucedo-api/storage:/var/www/storage:ro
+    depends_on: [api, ui]
+    networks: [portfolio-network]
+  api:
+    build: ./felixsaucedo-api
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost
+      DB_CONNECTION: mysql
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_DATABASE: portfolio_db
+      DB_USERNAME: portfolio_user
+      DB_PASSWORD: portfolio_secret
+      SESSION_DRIVER: file
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+    volumes:
+      - ./felixsaucedo-api:/var/www/html
+      - api-vendor:/var/www/html/vendor
+    depends_on:
+      db: { condition: service_healthy }
+    networks: [portfolio-network]
+  ui:
+    build: ./felixsaucedo-ui
+    environment:
+      VITE_API_BASE_URL: /api
+    volumes:
+      - ./felixsaucedo-ui:/app
+      - ui-node-modules:/app/node_modules
+    networks: [portfolio-network]
+  db:
+    image: mysql:8.4
+    container_name: portfolio-db
+    restart: unless-stopped
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb-buffer-pool-size=128M
+      - --innodb-log-buffer-size=16M
+      - --max-connections=30
+      - --table-open-cache=400
+      - --temptable-max-ram=64M
+      - --tmp-table-size=16M
+      - --max-heap-table-size=16M
+      - --performance-schema=OFF
+    environment:
+      MYSQL_DATABASE: portfolio_db
+      MYSQL_USER: portfolio_user
+      MYSQL_PASSWORD: portfolio_secret
+      MYSQL_ROOT_PASSWORD: root_secret_password
+    volumes: ["db-data:/var/lib/mysql"]
+    ports: ["3306:3306"]
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql --protocol=TCP -h 127.0.0.1 -u\"$$MYSQL_USER\" -D\"$$MYSQL_DATABASE\" -e 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [portfolio-network]
+
+networks:
+  portfolio-network:
+    name: portfolio-network
+volumes:
+  db-data:
+  api-vendor:
+  ui-node-modules:

@@ -1,0 +1,77 @@
+# Dependencias, builds y cachés
+node_modules/
+dist/
+dist-ssr/
+.vite/
+.vitest/
+coverage/
+*.tsbuildinfo
+*.local
+
+# Entorno y credenciales
+.env
+.env.*
+!.env.example
+!.env.production.example
+/auth.json
+/.npmrc
+/.aws/
+/.ssh/
+/.secrets/
+/secrets/
+
+# Claves y certificados
+*.key
+*.pem
+*.crt
+*.cer
+*.der
+*.p12
+*.pfx
+*.jks
+*.keystore
+/certs/
+/certificates/
+
+# Logs de gestores de paquetes
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Datos locales, logs y dumps
+mysql_data/
+db_data/
+.docker-data/
+*.log
+*.sql
+*.sql.gz
+*.dump
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Sistema, IDE y herramientas locales
+.idea/
+.vscode/
+.fleet/
+.codex/
+.cursor/
+.nova/
+.zed/
+.agents/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~

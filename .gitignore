@@ -1,0 +1,69 @@
+# Repositorios independientes: anclados a esta raíz
+/felixsaucedo-api/
+/felixsaucedo-ui/
+
+# Entorno y credenciales
+.env
+.env.*
+!.env.example
+!.env.production.example
+/auth.json
+/.npmrc
+/.aws/
+/.ssh/
+/.secrets/
+/secrets/
+
+# Claves y certificados
+*.key
+*.pem
+*.crt
+*.cer
+*.der
+*.p12
+*.pfx
+*.jks
+*.keystore
+/certs/
+/certificates/
+
+# Datos locales, logs y dumps
+mysql_data/
+db_data/
+.docker-data/
+*.log
+*.sql
+*.sql.gz
+*.dump
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# Dependencias y builds locales
+node_modules/
+vendor/
+dist/
+dist-ssr/
+
+# Sistema, IDE y herramientas locales
+.idea/
+.vscode/
+.fleet/
+.codex/
+.cursor/
+.nova/
+.zed/
+.agents/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*~
