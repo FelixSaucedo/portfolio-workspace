@@ -1,114 +1,119 @@
-# Portfolio: Laravel + Vue 3 + MySQL 8.4 en Docker
+# portfolio-workspace
 
-La raiz es `sitio/`. No necesitas PHP, Composer, Node, npm ni Git en el host. Docker Desktop debe estar activo con contenedores Linux y soporte WSL2.
+Separé el contenido, la interfaz y la operación del portafolio en tres repositorios. Este workspace reúne los servicios para trabajar con ellos bajo un mismo origen HTTP; no contiene una tercera aplicación.
 
-## Inicializacion
+La API gobierna el contenido profesional y recibe contactos. La SPA decide cómo presentar esos datos. Este repositorio mantiene Docker, el enrutamiento de Nginx y los scripts comunes. La separación permite cambiar la interfaz sin tocar la persistencia y construir imágenes independientes para cada servicio. A cambio, obliga a tratar el contrato JSON como una frontera: cambiar una respuesta requiere revisar también al consumidor.
 
-Linux/WSL:
+| Repositorio | Responsabilidad |
+| --- | --- |
+| [portfolio-workspace](https://github.com/FelixSaucedo/portfolio-workspace) | Red, contenedores, configuración de despliegue y operación conjunta. |
+| [felixsaucedo-api](https://github.com/FelixSaucedo/felixsaucedo-api) | Laravel 13, contenido bilingüe, tokens de diseño y recepción de contactos. |
+| [felixsaucedo-ui](https://github.com/FelixSaucedo/felixsaucedo-ui) | Vue 3.5, presentación, preferencias de usuario y formulario. |
 
-```sh
-cd /home/felix/projectos/sitio
-bash init-projects.sh
+Los directorios `felixsaucedo-api/` y `felixsaucedo-ui/` están excluidos del Git raíz. Son clones independientes, no submódulos. Cada uno conserva sus lockfiles, historial y Dockerfiles. La coordinación de versiones es explícita; este workspace no fija un commit de los otros dos repositorios.
+
+## Una entrada HTTP, dos runtimes
+
+Elegí Nginx como entrada común para conservar URLs relativas en el navegador y evitar configurar CORS para el flujo habitual. La API corre en PHP-FPM; no necesita un servidor HTTP de desarrollo adicional.
+
+```text
+Navegador
+    |
+    v
+Nginx gateway :80
+    |
+    +-- /api/* ---- FastCGI ---> PHP-FPM :9000 / Laravel ---> MySQL 8.4
+    |
+    +-- /storage/* -----------> almacenamiento público
+    |
+    +-- /* ------------------> UI
+                                desarrollo: Vite :5173 + HMR
+                                producción: Nginx :80 + dist/
+```
+
+[`nginx/default.conf`](nginx/default.conf) conecta el desarrollo con Vite y permite WebSocket para HMR. [`nginx/default.prod.conf`](nginx/default.prod.conf) conecta con la imagen del frontend compilado. En producción, otro Nginx dentro de esa imagen sirve los archivos y resuelve las rutas de la SPA.
+
+El Compose local monta los fuentes y conserva `vendor` y `node_modules` en volúmenes. MySQL tiene su propio volumen y la API espera a que una consulta SQL con el usuario de la aplicación tenga éxito. El puerto `3306` se publica para inspección local; la API siempre usa `db:3306` dentro de la red.
+
+## Inicialización desde los repositorios
+
+Requisitos: Git, Docker Engine con Compose, o Docker Desktop con contenedores Linux. PHP, Composer y Node se ejecutan dentro de los contenedores.
+
+```bash
+git clone https://github.com/FelixSaucedo/portfolio-workspace.git
+cd portfolio-workspace
+git clone https://github.com/FelixSaucedo/felixsaucedo-api.git
+git clone https://github.com/FelixSaucedo/felixsaucedo-ui.git
+cp felixsaucedo-api/.env.example felixsaucedo-api/.env
+```
+
+Antes de iniciar, configura en `felixsaucedo-api/.env` las credenciales iniciales `PORTFOLIO_ADMIN_NAME`, `PORTFOLIO_ADMIN_EMAIL` y `PORTFOLIO_ADMIN_PASSWORD`. El seeder exige una contraseña de al menos 16 caracteres. Las credenciales de muestra y de MySQL local no son valores de producción.
+
+```bash
 docker compose up -d --build
 ```
 
-Windows CMD:
+La primera ejecución instala las dependencias. Espera a que `docker compose logs api ui` muestre PHP-FPM y Vite disponibles antes de ejecutar Artisan.
 
-```bat
-cd /d C:\ruta\sitio
-init-projects.bat
-docker compose up -d --build
+```bash
+docker compose exec api php artisan key:generate --no-interaction
+docker compose exec api php artisan migrate:fresh --seed --no-interaction
 ```
 
-En PowerShell usa `./init-projects.bat`. Abre http://localhost. Las instalaciones iniciales pueden tardar; revisa `docker compose logs -f api ui`.
+`migrate:fresh` elimina todas las tablas: este paso está pensado para una base local desechable. En una base que deba conservarse, aplica `migrate` y decide por separado si corresponde ejecutar el seeder. Genera `APP_KEY` solo al inicializar el entorno; conserva la clave existente en los siguientes arranques.
 
-Ambos scripts eliminan por completo una API sin `vendor/autoload.php` y una UI sin `package.json`, incluyendo cambios locales o `.git` dentro de esas carpetas incompletas. Los proyectos completos se conservan: no se cambia automaticamente su version de Laravel o Vite. Para obtener el nuevo scaffolding mas reciente debes recrearlos deliberadamente.
+El sitio queda en `http://localhost`; el contenido, en `/api/v1/portfolio?lang=es` o `?lang=en`.
 
-El scaffolding Laravel no fija una version: Composer descarga la version estable mas reciente. Usa `--no-install --no-scripts`, configura `platform.php=8.4.0` y luego instala dependencias sin scripts, omitiendo solo las comprobaciones de extensiones que compila el Dockerfile real. PHP 8.4 se usa tanto en dev como prod. Los controles de seguridad de Composer permanecen activos. La seleccion de versiones con `latest` depende del momento de ejecucion; los lockfiles registran la resolucion.
+Los scripts `init-projects.sh` y `init-projects.bat` pertenecen al flujo de scaffolding, no al flujo de clonación anterior. Crean proyectos cuando faltan y reaplican plantillas de infraestructura. También eliminan una carpeta API sin `vendor/autoload.php` o una UI sin `package.json`. Una API recién clonada sin dependencias cumple esa condición: no ejecutes esos scripts sobre los clones para instalar el portafolio.
 
-`scripts/configure-env.php` crea `.env` cuando falta y configura `.env` y `.env.example` para MySQL: host `db`, puerto `3306`, base `portfolio_db`, usuario `portfolio_user`, clave local `portfolio_secret`. La APP_KEY existente se conserva. El script reaplica esos valores locales de DB en cada ejecucion; no lo uses sobre un checkout con credenciales de produccion.
+## Verificación y operación local
 
-Vue se crea con `npm create vite@latest`, Node 22 Alpine y TypeScript. Tailwind v4 se integra con `@tailwindcss/vite`; el CSS incluye `@import "tailwindcss";`. Se eliminan las configuraciones de Tailwind v3 y PostCSS y las dependencias directas `postcss`/`autoprefixer`. La instalacion mantiene dependencias transitivas que otras herramientas necesiten. Vite usa polling y el gateway soporta WebSocket para hot-reload.
+Desde la raíz:
 
-Las plantillas completas de ambos repositorios viven en `.docker-templates/` y se copian, incluidos sus archivos ocultos, despues del scaffolding. El script sobrescribe los archivos de infraestructura correspondientes.
-
-## API, dependencias y migraciones
-
-La capa de datos y Sanctum ya están implementados. Consulta `felixsaucedo-api/docs/DATA_LAYER.md` para configurar el administrador y cargar el contenido:
-
-```sh
-docker compose exec --user www-data api php artisan migrate --no-interaction
+```bash
+docker compose config --quiet
+docker compose exec api php artisan test --compact tests/Feature/PortfolioApiTest.php
+docker compose exec ui node --experimental-strip-types --test tests/portfolio-contract.test.mjs
+docker compose exec ui npm run build
 ```
 
-Las rutas viven en `felixsaucedo-api/routes/api.php`. El cliente usa `import.meta.env.VITE_API_BASE_URL` con `/api` por defecto. Nginx deriva `/api` al front controller PHP mediante FastCGI y sirve `/storage` desde `storage/app/public`; este gateway no necesita `storage:link`.
+Las pruebas del frontend consultan la API real por la red Docker. Las de Laravel usan SQLite en memoria; la ejecución de migraciones sobre MySQL es una comprobación distinta. Los README de cada servicio explican su contrato y sus verificaciones.
 
-```sh
-docker compose exec api composer require nombre/paquete
-docker compose exec ui npm install nombre-paquete
-```
+Cada repositorio también tiene un Compose autónomo: API en `localhost:8080` y UI en `localhost:5173`. Detén el stack raíz antes de usarlos para evitar conflictos de puertos. El proxy de Vite autónomo apunta por defecto a `host.docker.internal:8080`; fuera de Docker Desktop puede requerir `API_PROXY_TARGET` con una dirección alcanzable.
 
-`vendor` y `node_modules` se mantienen en volumenes Docker para acelerar Windows. Los fuentes se montan desde el host. Los archivos creados por el init de Linux pertenecen al UID/GID del usuario; la limpieza usa root dentro de un contenedor. FPM prepara `storage` y `bootstrap/cache` para `www-data`. Ejecuta Artisan como ese usuario cuando escriba archivos.
+## Producción
 
-MySQL local se publica en el puerto 3306, con el nombre `portfolio-db`. Si ya tienes otro servidor usando ese puerto, cambia el puerto del host. La API usa siempre `db:3306` dentro de Docker. Su inicio depende de una consulta SQL exitosa con el usuario de la aplicacion, no solo de que el puerto este abierto.
+[`docker-compose.prod.yml`](docker-compose.prod.yml) usa builds por etapas, dependencias incluidas en las imágenes y fuentes sin bind mounts. El frontend sirve `dist/`; no ejecuta Vite. La API instala dependencias sin paquetes de desarrollo y cachea la configuración al arrancar.
 
-## Repositorios y ejecucion autonoma
-
-Desde CMD, sin Git local:
-
-```bat
-docker run --rm -v "%cd%\felixsaucedo-api:/git" alpine/git init --initial-branch=main
-docker run --rm -v "%cd%\felixsaucedo-ui:/git" alpine/git init --initial-branch=main
-```
-
-Cada carpeta conserva sus Dockerfiles y Compose. El workspace ignora ambas. Deten el Compose raiz antes de iniciar las instancias autonomas:
-
-```sh
-docker compose down
-cd felixsaucedo-api
-docker compose up -d --build
-```
-
-API autonoma: http://localhost:8080/api/..., con su propia base MySQL y volumen. En otra consola, entra en `felixsaucedo-ui` y ejecuta `docker compose up -d --build`: UI en http://localhost:5173. El proxy de Vite usa `host.docker.internal:8080` para `/api` y `/storage`, configurable con `API_PROXY_TARGET`. En Linux fuera de Docker Desktop debes configurar una direccion que alcance al host.
-
-## Lightsail: produccion
-
-Necesitas Docker Engine y Compose en Ubuntu. Transfiere el workspace y ambos proyectos con sus lockfiles, o publica las imagenes desde CI.
-
-```sh
+```bash
 cp .env.production.example .env.production
-chmod 600 .env.production
 ```
 
-Edita `APP_KEY`, `APP_URL`, `DB_PASSWORD` y `MYSQL_ROOT_PASSWORD`. Para generar una clave distinta para produccion:
+Configura `APP_KEY`, `APP_URL`, las contraseñas de MySQL y las credenciales iniciales del administrador antes de continuar. Usa una clave de aplicación propia del entorno y consérvala entre despliegues.
 
-```sh
-docker run --rm php:8.4-cli-alpine php -r 'echo "base64:".base64_encode(random_bytes(32)).PHP_EOL;'
-```
-
-Conserva la clave entre despliegues. MySQL inicializa usuarios y claves solo al crear un volumen vacio: editar variables no actualiza usuarios de una base existente.
-
-Usa solo el Compose de produccion; no lo combines con el de desarrollo. Builds secuenciales:
-
-```sh
+```bash
 docker compose --env-file .env.production -f docker-compose.prod.yml build api
 docker compose --env-file .env.production -f docker-compose.prod.yml build ui
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
 docker compose --env-file .env.production -f docker-compose.prod.yml exec --user www-data api php artisan migrate --force --no-interaction
 ```
 
-En un VPS de 2 GB es preferible construir en CI y definir `API_IMAGE`/`UI_IMAGE` para desplegar con `pull` y `up -d --no-build`. Los limites de ejecucion no limitan la memoria de los builds.
+No combines este Compose con el de desarrollo. `API_IMAGE` y `UI_IMAGE` permiten seleccionar imágenes construidas fuera del servidor. El gateway publica únicamente el puerto 80; TLS no está configurado en estos archivos.
 
-Los contenedores tienen limites de 1280 MiB en total: API 640, MySQL 512, UI 64 y gateway 64. FPM tiene tres procesos como maximo y PHP limita cada ejecucion a 128 MB. MySQL usa buffer pool de 128 MB, log buffer de 16 MB, treinta conexiones como maximo y Performance Schema desactivado para reducir RAM. Confirma el consumo bajo carga con `docker stats`.
+Los límites de memoria suman 1280 MiB para los cuatro servicios. PHP-FPM admite hasta tres procesos y MySQL usa un buffer pool de 128 MiB. Es una configuración contenida para un servidor pequeño, no una estimación de capacidad bajo carga. Cache y sesiones usan archivos, y las colas son síncronas: escalar a varias réplicas requeriría revisar esas decisiones.
 
-Produccion sirve Vue compilado desde Nginx y no ejecuta Vite, npm ni Composer al arrancar. Las credenciales vienen del entorno. MySQL no publica el puerto 3306 en produccion; solo el gateway publica el 80. Agrega TLS y un dominio antes de publicar autenticacion. Las colas son sincronas, y sesiones/cache usan archivos; agrega workers y reajusta memoria cuando los necesites.
+La API ya no consume información laboral del entorno. El Compose y el ejemplo de producción todavía declaran `PORTFOLIO_CAREER_*` por compatibilidad histórica; esos valores no tienen efecto en el contenido.
 
-El volumen `db-data` es exclusivo de MySQL. No montes antiguos volumenes de otra base en `/var/lib/mysql`; no hay una migracion automatica de datos entre motores. Los volumenes anteriores se conservan hasta que decidas retirarlos. Respalda MySQL y `storage` antes de migraciones. `down` conserva los volumenes; `down -v` elimina datos.
+`docker compose down` conserva los volúmenes. `down -v` los elimina. Cambiar una contraseña en el archivo de entorno tampoco cambia automáticamente el usuario de un volumen MySQL ya inicializado.
 
-## Validacion
+## Sincronización de los tres repositorios
 
-```sh
-docker compose config --quiet
-docker compose --env-file .env.production -f docker-compose.prod.yml config --quiet
+[`sync-repos.sh`](sync-repos.sh) simplifica la publicación de cambios ya revisados:
+
+```bash
+./sync-repos.sh "docs: actualizar arquitectura y operación"
 ```
 
-La comprobacion real de builds, migraciones y hot-reload requiere acceso al daemon Docker y a los registros de paquetes.
+Ejecutado desde esta raíz, recorre workspace, API y UI, en ese orden. En cada repositorio con cambios hace `git add -A`, crea un commit con el mismo mensaje y ejecuta `git push origin HEAD`. Si no hay cambios, lo omite; si falta `.git`, informa y continúa. Un error de commit o push detiene el recorrido.
+
+El script incluye todos los cambios pendientes, también archivos nuevos y eliminados. Revisa los tres diffs antes de usarlo. No hace pull, no resuelve conflictos y no publica los tres repositorios de forma atómica: un push anterior puede haber terminado cuando falla el siguiente.
