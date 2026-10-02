@@ -31,9 +31,11 @@ Nginx gateway :80
                                 producción: Nginx :80 + dist/
 ```
 
-[`nginx/default.conf`](nginx/default.conf) conecta el desarrollo con Vite y permite WebSocket para HMR. [`nginx/default.prod.conf`](nginx/default.prod.conf) conecta con la imagen del frontend compilado. En producción, otro Nginx dentro de esa imagen sirve los archivos y resuelve las rutas de la SPA.
+[`nginx/default.conf`](nginx/default.conf) conecta el desarrollo con Vite y permite WebSocket para HMR. [`nginx/default.prod.conf`](nginx/default.prod.conf) conecta con la imagen del frontend compilado. En producción, otro Nginx dentro de esa imagen sirve los archivos y resuelve las rutas de la SPA. Ambos gateways comparten [`nginx/common.conf`](nginx/common.conf): rutas de API y storage, compresión gzip, `X-Content-Type-Options: nosniff` y `X-Frame-Options: SAMEORIGIN`, incluidos los errores HTTP.
 
-El Compose local monta los fuentes y conserva `vendor` y `node_modules` en volúmenes. MySQL tiene su propio volumen y la API espera a que una consulta SQL con el usuario de la aplicación tenga éxito. El puerto `3306` se publica para inspección local; la API siempre usa `db:3306` dentro de la red.
+El Compose local monta los fuentes y conserva `vendor` y `node_modules` en volúmenes. MySQL tiene su propio volumen y la API espera a que una consulta SQL con el usuario de la aplicación tenga éxito. Solo el gateway publica un puerto al host. PHP-FPM y MySQL se acceden por la red Docker; la API usa `db:3306`. Para inspeccionar la base, utiliza el cliente dentro del contenedor con `docker compose exec db mysql -u portfolio_user -p portfolio_db`.
+
+La configuración compartida evita que las rutas y los headers de desarrollo diverjan de producción. Gzip usa nivel 5 y un umbral de 1024 bytes para HTML, JSON y otros formatos de texto; comprimir respuestas pequeñas aportaría poco frente al trabajo adicional.
 
 ## Inicialización desde los repositorios
 
@@ -64,7 +66,7 @@ docker compose exec api php artisan migrate:fresh --seed --no-interaction
 
 El sitio queda en `http://localhost`; el contenido, en `/api/v1/portfolio?lang=es` o `?lang=en`.
 
-Los scripts `init-projects.sh` y `init-projects.bat` pertenecen al flujo de scaffolding, no al flujo de clonación anterior. Crean proyectos cuando faltan y reaplican plantillas de infraestructura. También eliminan una carpeta API sin `vendor/autoload.php` o una UI sin `package.json`. Una API recién clonada sin dependencias cumple esa condición: no ejecutes esos scripts sobre los clones para instalar el portafolio.
+Los scripts `init-projects.sh` y `init-projects.bat` pertenecen al flujo de scaffolding, no al flujo de clonación anterior. Crean proyectos cuando faltan y reaplican plantillas de infraestructura. Detienen la ejecución si encuentran una carpeta API sin `vendor/autoload.php` o una UI sin `package.json`; no eliminan proyectos existentes. Una API recién clonada sin dependencias cumple esa condición: usa el flujo de clonación anterior para instalar el portafolio.
 
 ## Verificación y operación local
 
@@ -72,6 +74,8 @@ Desde la raíz:
 
 ```bash
 docker compose config --quiet
+docker compose exec gateway nginx -t
+docker compose ps
 docker compose exec api php artisan test --compact tests/Feature/PortfolioApiTest.php
 docker compose exec ui node --experimental-strip-types --test tests/portfolio-contract.test.mjs
 docker compose exec ui npm run build
@@ -102,9 +106,13 @@ No combines este Compose con el de desarrollo. `API_IMAGE` y `UI_IMAGE` permiten
 
 Los límites de memoria suman 1280 MiB para los cuatro servicios. PHP-FPM admite hasta tres procesos y MySQL usa un buffer pool de 128 MiB. Es una configuración contenida para un servidor pequeño, no una estimación de capacidad bajo carga. Cache y sesiones usan archivos, y las colas son síncronas: escalar a varias réplicas requeriría revisar esas decisiones.
 
-La API ya no consume información laboral del entorno. El Compose y el ejemplo de producción todavía declaran `PORTFOLIO_CAREER_*` por compatibilidad histórica; esos valores no tienen efecto en el contenido.
+La API y el Compose no utilizan variables laborales `PORTFOLIO_CAREER_*`. La trayectoria se obtiene exclusivamente de la base de datos.
 
 `docker compose down` conserva los volúmenes. `down -v` los elimina. Cambiar una contraseña en el archivo de entorno tampoco cambia automáticamente el usuario de un volumen MySQL ya inicializado.
+
+## Archivos versionados y datos locales
+
+El workspace versiona la configuración necesaria para reproducir el entorno. El [`.gitignore`](.gitignore) excluye credenciales `.env`, dependencias, builds, cachés locales de Docker, logs, respaldos temporales y dumps de base de datos. Los archivos `.env.example` y `.env.production.example` se conservan como contratos de configuración; los datos persistentes viven en volúmenes Docker.
 
 ## Sincronización de los tres repositorios
 
@@ -114,6 +122,8 @@ La API ya no consume información laboral del entorno. El Compose y el ejemplo d
 ./sync-repos.sh "docs: actualizar arquitectura y operación"
 ```
 
-Ejecutado desde esta raíz, recorre workspace, API y UI, en ese orden. En cada repositorio con cambios hace `git add -A`, crea un commit con el mismo mensaje y ejecuta `git push origin HEAD`. Si no hay cambios, lo omite; si falta `.git`, informa y continúa. Un error de commit o push detiene el recorrido.
+El script localiza el workspace desde su propia ruta, independientemente del directorio desde el que se invoque. Antes de modificar nada, comprueba los tres repositorios, la existencia del remoto `origin`, una rama activa y la ausencia de conflictos, merges o rebases incompletos.
+
+Recorre workspace, API y UI en ese orden. Si encuentra cambios, ejecuta `git add --all` y crea un commit con el mensaje indicado. Después hace `git push origin HEAD`, incluso cuando el árbol ya estaba limpio, para poder reintentar un push pendiente. Usa `set -euo pipefail` y termina ante el primer error.
 
 El script incluye todos los cambios pendientes, también archivos nuevos y eliminados. Revisa los tres diffs antes de usarlo. No hace pull, no resuelve conflictos y no publica los tres repositorios de forma atómica: un push anterior puede haber terminado cuando falla el siguiente.

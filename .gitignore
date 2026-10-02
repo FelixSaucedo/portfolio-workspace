@@ -31,10 +31,23 @@
 mysql_data/
 db_data/
 .docker-data/
+.docker-cache/
+.buildkit-cache/
+.buildx-cache/
+.cache/
 *.log
+*.bak
+*.old
+*.tmp
+*.orig
+*.rej
 *.sql
 *.sql.gz
+*.sql.bz2
+*.sql.xz
+*.sql.zst
 *.dump
+*.dump.gz
 *.sqlite
 *.sqlite3
 *.sqlite-journal
@@ -46,6 +59,11 @@ node_modules/
 vendor/
 dist/
 dist-ssr/
+.vite/
+.vitest/
+coverage/
+*.tsbuildinfo
+.pint.cache
 
 # Sistema, IDE y herramientas locales
 .idea/

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-trap 'echo "ERROR: La inicializacion fallo en la linea $LINENO." >&2' ERR
+trap 'printf "init: failed at line %s\n" "$LINENO" >&2' ERR
 
 if ! docker info >/dev/null 2>&1; then
   echo 'ERROR: Inicia Docker con contenedores Linux y soporte WSL2.' >&2
@@ -13,9 +13,8 @@ for project in felixsaucedo-api felixsaucedo-ui; do
   marker=vendor/autoload.php
   [[ "$project" == felixsaucedo-ui ]] && marker=package.json
   if [[ -d "$project" && ! -f "$project/$marker" ]]; then
-    echo "Limpiando $project incompleto: falta $marker."
-    docker run --rm --user 0:0 -v "$PWD":/app -w /app \
-      composer:2 sh -ec 'rm -rf -- "/app/$1"' sh "$project"
+    printf 'init: %s exists but lacks %s; restore it before scaffolding\n' "$project" "$marker" >&2
+    exit 1
   fi
 done
 
@@ -51,7 +50,6 @@ if [[ ! -f felixsaucedo-ui/package.json ]]; then
   exit 1
 fi
 
-# Incluye .docker, .dockerignore y otros archivos ocultos.
 cp -R .docker-templates/felixsaucedo-api/. felixsaucedo-api/
 cp -R .docker-templates/felixsaucedo-ui/. felixsaucedo-ui/
 

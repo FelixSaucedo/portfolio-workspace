@@ -7,14 +7,12 @@ if errorlevel 1 (
   exit /b 1
 )
 if exist felixsaucedo-api if not exist felixsaucedo-api\vendor\autoload.php (
-  echo Limpiando API incompleta.
-  docker run --rm --user 0:0 -v "%cd%":/app -w /app composer:2 sh -ec "rm -rf -- /app/felixsaucedo-api"
-  if errorlevel 1 goto failed
+  echo ERROR: API existente sin vendor/autoload.php. Restaura el proyecto antes de inicializar.
+  exit /b 1
 )
 if exist felixsaucedo-ui if not exist felixsaucedo-ui\package.json (
-  echo Limpiando UI incompleta.
-  docker run --rm --user 0:0 -v "%cd%":/app -w /app composer:2 sh -ec "rm -rf -- /app/felixsaucedo-ui"
-  if errorlevel 1 goto failed
+  echo ERROR: UI existente sin package.json. Restaura el proyecto antes de inicializar.
+  exit /b 1
 )
 if exist felixsaucedo-api goto apiExisting
 docker run --rm -v "%cd%":/app -w /app composer:2 sh -ec "composer create-project --prefer-dist --no-interaction --no-install --no-scripts laravel/laravel felixsaucedo-api && cd felixsaucedo-api && composer config platform.php 8.4.0 && composer install --prefer-dist --no-interaction --no-scripts --ignore-platform-req=ext-*"
