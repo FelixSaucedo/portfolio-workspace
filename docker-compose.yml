@@ -10,7 +10,7 @@ services:
       - ./felixsaucedo-api/storage:/var/www/storage:ro
     depends_on: [api, ui]
     networks: [portfolio-network]
-  api:
+  api: &api
     build: ./felixsaucedo-api
     environment:
       APP_ENV: local
@@ -31,6 +31,15 @@ services:
     depends_on:
       db: { condition: service_healthy }
     networks: [portfolio-network]
+  contact-worker:
+    <<: *api
+    image: portfolio-api
+    command: ["php", "artisan", "queue:work", "contact-mail", "--queue=contacts", "--sleep=3", "--tries=3", "--timeout=30", "--max-time=3600"]
+    restart: unless-stopped
+    stop_grace_period: 45s
+    depends_on:
+      api: { condition: service_started }
+      db: { condition: service_healthy }
   ui:
     build: ./felixsaucedo-ui
     volumes:

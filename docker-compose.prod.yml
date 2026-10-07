@@ -17,7 +17,7 @@ services:
     logging: &logging
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
-  api:
+  api: &api
     image: ${API_IMAGE:-portfolio-api:prod}
     build:
       context: ./felixsaucedo-api
@@ -25,6 +25,16 @@ services:
     restart: unless-stopped
     mem_limit: 640m
     environment:
+      MAIL_MAILER: ${MAIL_MAILER:-smtp}
+      MAIL_SCHEME: smtp
+      MAIL_HOST: ${MAIL_HOST:-mail.smtp2go.com}
+      MAIL_PORT: ${MAIL_PORT:-2525}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_ENCRYPTION: tls
+      MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-contacto@felixsaucedo.com}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-Félix Saucedo}
+      PORTFOLIO_CONTACT_RECIPIENT: ${PORTFOLIO_CONTACT_RECIPIENT:-contacto@felixsaucedo.com}
       APP_ENV: production
       APP_DEBUG: "false"
       APP_KEY: ${APP_KEY:?Define APP_KEY en .env.production}
@@ -53,6 +63,15 @@ services:
       start_period: 30s
     networks: [portfolio-network]
     logging: *logging
+  contact-worker:
+    <<: *api
+    mem_limit: 192m
+    command: ["php", "artisan", "queue:work", "contact-mail", "--queue=contacts", "--sleep=3", "--tries=3", "--timeout=30", "--max-time=3600"]
+    stop_grace_period: 45s
+    healthcheck: { disable: true }
+    depends_on:
+      api: { condition: service_healthy }
+      db: { condition: service_healthy }
   ui:
     image: ${UI_IMAGE:-portfolio-ui:prod}
     build:
