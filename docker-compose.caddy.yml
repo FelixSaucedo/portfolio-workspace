@@ -1,0 +1,33 @@
+services:
+  gateway:
+    ports: !reset []
+    mem_limit: 32m
+    environment:
+      CADDY_PROXY_IP: ${CADDY_PROXY_IP:?Define la IP de Caddy en la red web}
+      NGINX_ENVSUBST_FILTER: "^CADDY_PROXY_IP$"
+    volumes: !override
+      - ./nginx/default.caddy.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/common.conf:/etc/nginx/portfolio-common.conf:ro
+      - ./nginx/proxy.conf:/etc/nginx/portfolio-proxy.conf:ro
+      - app-storage:/var/www/storage:ro
+    networks: !override
+      portfolio-network: {}
+      web:
+        aliases: [felix-portfolio-gateway]
+  api:
+    mem_limit: 320m
+    volumes:
+      - ./nginx/fpm.lightsail.conf:/usr/local/etc/php-fpm.d/zzz-lightsail.conf:ro
+  contact-worker:
+    mem_limit: 128m
+  contact-scheduler:
+    mem_limit: 128m
+  ui:
+    mem_limit: 32m
+  db:
+    mem_limit: 384m
+
+networks:
+  web:
+    external: true
+    name: web

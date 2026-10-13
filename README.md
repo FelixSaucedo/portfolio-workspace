@@ -107,6 +107,21 @@ docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-
 
 Construyo imágenes que incluyen las dependencias y la UI compilada; `API_IMAGE` y `UI_IMAGE` me permiten usar imágenes preparadas fuera del servidor. Conservo los volúmenes y `APP_KEY` entre despliegues. Las credenciales de un MySQL ya inicializado requieren su propia actualización: cambiar `.env.production` no modifica ese usuario.
 
+### Lightsail con Caddy existente
+
+En el servidor uso también `docker-compose.caddy.yml`. El gateway se conecta a la red externa `web` con el alias `felix-portfolio-gateway`; API, UI y MySQL permanecen en la red del portafolio. Este override retira el puerto 80 del host y limita el conjunto a 1 GiB de memoria como máximo. Esos límites no reservan memoria ni cubren el consumo de los builds.
+
+Configuro `APP_URL` y `VITE_SITE_URL` como `https://felixsaucedo.com`, y `CADDY_PROXY_IP` con la IP de Caddy en `web`. Nginx acepta la IP de visitante enviada por ese proxy y comunica HTTPS a PHP-FPM. Si recreo Caddy, compruebo su IP y recreo el gateway si cambió.
+
+```bash
+docker inspect caddy --format '{{with index .NetworkSettings.Networks "web"}}{{.IPAddress}}{{end}}'
+docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.caddy.yml config --quiet
+```
+
+Uso ambos archivos Compose en **todos** los comandos de este despliegue. Construyo `api` y `ui` por separado para reducir el pico de memoria y sigo el orden de migraciones del apartado anterior. Antes de cambiar el dominio compruebo desde Caddy que el gateway sirve `/` y `/api/v1/portfolio`.
+
+En el bloque `felixsaucedo.com` sustituyo el servidor estático y la redirección de rutas por `reverse_proxy felix-portfolio-gateway:80`. Conservo el bloque de `entre-nosotros` y redirijo `www` al dominio principal preservando `{uri}`. Respaldo el Caddyfile, valido la nueva configuración y la recargo; para volver al HTML anterior restauro ese archivo y lo recargo. No elimino `/opt/apps/main-site` ni los volúmenes de Caddy.
+
 ## Repositorios y archivos locales
 
 Uso `./sync-repos.sh "mensaje"` para sincronizar cambios ya revisados en los tres repositorios. Antes reviso todos los diffs, porque el script incluye los cambios pendientes, crea commits y hace push. Mantengo `init-projects.sh` y `.bat` para scaffolding; el arranque de estos clones sigue los pasos anteriores.
