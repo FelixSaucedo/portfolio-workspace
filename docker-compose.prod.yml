@@ -50,7 +50,7 @@ services:
       DB_USERNAME: portfolio_user
       DB_PASSWORD: ${DB_PASSWORD:?Define DB_PASSWORD en .env.production}
       SESSION_DRIVER: file
-      CACHE_STORE: file
+      CACHE_STORE: database
       QUEUE_CONNECTION: sync
     volumes: ["app-storage:/var/www/html/storage"]
     depends_on:
@@ -67,6 +67,15 @@ services:
     <<: *api
     mem_limit: 192m
     command: ["php", "artisan", "queue:work", "contact-mail", "--queue=contacts", "--sleep=3", "--tries=3", "--timeout=30", "--max-time=3600"]
+    stop_grace_period: 45s
+    healthcheck: { disable: true }
+    depends_on:
+      api: { condition: service_healthy }
+      db: { condition: service_healthy }
+  contact-scheduler:
+    <<: *api
+    mem_limit: 192m
+    command: ["php", "artisan", "schedule:work", "--no-interaction"]
     stop_grace_period: 45s
     healthcheck: { disable: true }
     depends_on:

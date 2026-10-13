@@ -1,45 +1,33 @@
 # portfolio-workspace
 
-Separé el contenido, la interfaz y la operación del portafolio en tres repositorios. Este workspace reúne los servicios para trabajar con ellos bajo un mismo origen HTTP; no contiene una tercera aplicación.
-
-La API gobierna el contenido profesional y recibe contactos. La SPA decide cómo presentar esos datos. Este repositorio mantiene Docker, el enrutamiento de Nginx y los scripts comunes. La separación permite cambiar la interfaz sin tocar la persistencia y construir imágenes independientes para cada servicio. A cambio, obliga a tratar el contrato JSON como una frontera: cambiar una respuesta requiere revisar también al consumidor.
+Separé mi portafolio en tres repositorios: API, interfaz e infraestructura. Este workspace contiene Docker Compose, Nginx y los scripts para ejecutarlos juntos. Construyo la API y la UI por separado; si cambio el contrato JSON, reviso ambos repositorios.
 
 | Repositorio | Responsabilidad |
 | --- | --- |
-| [portfolio-workspace](https://github.com/FelixSaucedo/portfolio-workspace) | Red, contenedores, configuración de despliegue y operación conjunta. |
-| [felixsaucedo-api](https://github.com/FelixSaucedo/felixsaucedo-api) | Laravel 13, contenido bilingüe, tokens de diseño y recepción de contactos. |
-| [felixsaucedo-ui](https://github.com/FelixSaucedo/felixsaucedo-ui) | Vue 3.5, presentación, preferencias de usuario y formulario. |
+| [portfolio-workspace](https://github.com/FelixSaucedo/portfolio-workspace) | Docker Compose, gateway Nginx y operación conjunta. |
+| [felixsaucedo-api](https://github.com/FelixSaucedo/felixsaucedo-api) | Laravel 13 / PHP 8.4, contenido ES/EN, contactos y correo asíncrono. |
+| [felixsaucedo-ui](https://github.com/FelixSaucedo/felixsaucedo-ui) | Vue 3.5 / TypeScript / Vite 8 / Tailwind CSS 4. |
 
-Los directorios `felixsaucedo-api/` y `felixsaucedo-ui/` están excluidos del Git raíz. Son clones independientes, no submódulos. Cada uno conserva sus lockfiles, historial y Dockerfiles. La coordinación de versiones es explícita; este workspace no fija un commit de los otros dos repositorios.
+Mantengo API y UI como clones independientes, excluidos del Git raíz. Cada uno conserva su historial y sus dependencias; este workspace no fija sus versiones mediante submódulos.
 
-## Una entrada HTTP, dos runtimes
+## Servicios y red
 
-Elegí Nginx como entrada común para conservar URLs relativas en el navegador y evitar configurar CORS para el flujo habitual. La API corre en PHP-FPM; no necesita un servidor HTTP de desarrollo adicional.
+Uso Nginx para servir UI y API bajo el mismo origen y evitar CORS en el flujo habitual. `/api/*` llega a Laravel mediante PHP-FPM, `/storage/*` sirve archivos públicos y el resto llega a la UI. En desarrollo trabajo con Vite y HMR; en producción sirvo la aplicación compilada.
 
-```text
-Navegador
-    |
-    v
-Nginx gateway :80
-    |
-    +-- /api/* ---- FastCGI ---> PHP-FPM :9000 / Laravel ---> MySQL 8.4
-    |
-    +-- /storage/* -----------> almacenamiento público
-    |
-    +-- /* ------------------> UI
-                                desarrollo: Vite :5173 + HMR
-                                producción: Nginx :80 + dist/
-```
+| Servicio | Función |
+| --- | --- |
+| `gateway` | Nginx, puerto HTTP 80, headers de seguridad y límite API de 64 KB. |
+| `api` | PHP-FPM y Laravel. |
+| `ui` | Vite con HMR en desarrollo; Nginx y `dist/` en producción. |
+| `db` | MySQL 8.4 con volumen persistente. |
+| `contact-worker` | Procesa los correos de la cola `contacts`. |
+| `contact-scheduler` | Recupera cada minuto los despachos pendientes. |
 
-[`nginx/default.conf`](nginx/default.conf) conecta el desarrollo con Vite y permite WebSocket para HMR. [`nginx/default.prod.conf`](nginx/default.prod.conf) conecta con la imagen del frontend compilado. En producción, otro Nginx dentro de esa imagen sirve los archivos y resuelve las rutas de la SPA. Ambos gateways comparten [`nginx/common.conf`](nginx/common.conf): rutas de API y storage, compresión gzip, `X-Content-Type-Options: nosniff` y `X-Frame-Options: SAMEORIGIN`, incluidos los errores HTTP.
+MySQL local se publica únicamente en `127.0.0.1:3306`, con base `portfolio_db` y usuario `portfolio_user`. La contraseña está en `MYSQL_PASSWORD` del Compose local; Laravel se conecta a `db:3306`. Producción no publica MySQL al host.
 
-El Compose local monta los fuentes y conserva `vendor` y `node_modules` en volúmenes. MySQL tiene su propio volumen y la API espera a que una consulta SQL con el usuario de la aplicación tenga éxito. Solo el gateway publica un puerto al host. PHP-FPM y MySQL se acceden por la red Docker; la API usa `db:3306`. Para inspeccionar la base, utiliza el cliente dentro del contenedor con `docker compose exec db mysql -u portfolio_user -p portfolio_db`.
+## Desarrollo
 
-La configuración compartida evita que las rutas y los headers de desarrollo diverjan de producción. Gzip usa nivel 5 y un umbral de 1024 bytes para HTML, JSON y otros formatos de texto; comprimir respuestas pequeñas aportaría poco frente al trabajo adicional.
-
-## Inicialización desde los repositorios
-
-Requisitos: Git, Docker Engine con Compose, o Docker Desktop con contenedores Linux. PHP, Composer y Node se ejecutan dentro de los contenedores.
+Ejecuto PHP, Composer y Node en Docker para mantener las versiones del entorno. Para preparar el sitio necesito Git y Docker Compose con contenedores Linux:
 
 ```bash
 git clone https://github.com/FelixSaucedo/portfolio-workspace.git
@@ -49,81 +37,78 @@ git clone https://github.com/FelixSaucedo/felixsaucedo-ui.git
 cp felixsaucedo-api/.env.example felixsaucedo-api/.env
 ```
 
-Antes de iniciar, configura en `felixsaucedo-api/.env` las credenciales iniciales `PORTFOLIO_ADMIN_NAME`, `PORTFOLIO_ADMIN_EMAIL` y `PORTFOLIO_ADMIN_PASSWORD`. El seeder exige una contraseña de al menos 16 caracteres. Las credenciales de muestra y de MySQL local no son valores de producción.
+Antes del primer arranque preparo `PORTFOLIO_ADMIN_*` y las credenciales `MAIL_USERNAME` / `MAIL_PASSWORD` de SMTP2GO en el `.env` de la API. El administrador inicial requiere una contraseña de al menos 16 caracteres. Uso `contacto@felixsaucedo.com` como remitente y como destinatario de las notificaciones del sitio.
 
 ```bash
-docker compose up -d --build
-```
-
-La primera ejecución instala las dependencias. Espera a que `docker compose logs api ui` muestre PHP-FPM y Vite disponibles antes de ejecutar Artisan.
-
-```bash
+docker compose up -d --build db api ui
 docker compose exec api php artisan key:generate --no-interaction
-docker compose exec api php artisan migrate:fresh --seed --no-interaction
+docker compose exec api php artisan migrate --no-interaction
+docker compose exec api php artisan db:seed --no-interaction
+docker compose up -d
 ```
 
-`migrate:fresh` elimina todas las tablas: este paso está pensado para una base local desechable. En una base que deba conservarse, aplica `migrate` y decide por separado si corresponde ejecutar el seeder. Genera `APP_KEY` solo al inicializar el entorno; conserva la clave existente en los siguientes arranques.
+Genero `APP_KEY` solo en la primera instalación. Artisan requiere que PHP-FPM esté disponible; el sitio se sirve en `http://localhost`.
 
-El sitio queda en `http://localhost`; el contenido, en `/api/v1/portfolio?lang=es` o `?lang=en`.
+Para actualizar el esquema o los textos del seeder:
 
-Los scripts `init-projects.sh` y `init-projects.bat` pertenecen al flujo de scaffolding, no al flujo de clonación anterior. Crean proyectos cuando faltan y reaplican plantillas de infraestructura. Detienen la ejecución si encuentran una carpeta API sin `vendor/autoload.php` o una UI sin `package.json`; no eliminan proyectos existentes. Una API recién clonada sin dependencias cumple esa condición: usa el flujo de clonación anterior para instalar el portafolio.
+```bash
+docker compose exec api php artisan migrate --no-interaction
+docker compose exec api php artisan db:seed --class=PortfolioSeeder --no-interaction
+```
 
-## Verificación y operación local
+El seeder sobrescribe sus registros, incluidas las ediciones manuales. Uso `migrate` para actualizar el esquema; `migrate:fresh` y `down -v` eliminan datos.
 
-Desde la raíz:
+## Pruebas y correo
 
 ```bash
 docker compose config --quiet
 docker compose exec gateway nginx -t
-docker compose ps
-docker compose exec api php artisan test --compact tests/Feature/PortfolioApiTest.php
-docker compose exec ui node --experimental-strip-types --test tests/portfolio-contract.test.mjs
+docker compose exec api php artisan test --compact
+docker compose exec api php artisan route:list --no-interaction
+docker compose exec ui npm test
 docker compose exec ui npm run build
 ```
 
-Las pruebas del frontend consultan la API real por la red Docker. Las de Laravel usan SQLite en memoria; la ejecución de migraciones sobre MySQL es una comprobación distinta. Los README de cada servicio explican su contrato y sus verificaciones.
+Las pruebas Laravel usan una base aislada. Las pruebas de contrato de la UI consultan la API real del stack.
 
-Cada repositorio también tiene un Compose autónomo: API en `localhost:8080` y UI en `localhost:5173`. Detén el stack raíz antes de usarlos para evitar conflictos de puertos. El proxy de Vite autónomo apunta por defecto a `host.docker.internal:8080`; fuera de Docker Desktop puede requerir `API_PROXY_TARGET` con una dirección alcanzable.
+Guardo el contacto antes de encolar la alerta para mí y la confirmación para quien escribe. Si falla la cola, el mensaje queda disponible para recuperar el despacho. La API devuelve `201` con los jobs registrados o `202` con notificaciones pendientes; ninguno confirma entrega SMTP.
+
+```bash
+docker compose logs --tail=100 contact-worker contact-scheduler
+docker compose exec api php artisan contacts:dispatch-pending --no-interaction
+docker compose exec api php artisan queue:failed --no-interaction
+docker compose exec api php artisan queue:retry all --no-interaction
+```
+
+Tras cambiar configuración de correo o código del worker:
+
+```bash
+docker compose exec api php artisan config:clear --no-interaction
+docker compose restart contact-worker contact-scheduler
+```
 
 ## Producción
-
-[`docker-compose.prod.yml`](docker-compose.prod.yml) usa builds por etapas, dependencias incluidas en las imágenes y fuentes sin bind mounts. El frontend sirve `dist/`; no ejecuta Vite. La API instala dependencias sin paquetes de desarrollo y cachea la configuración al arrancar.
 
 ```bash
 cp .env.production.example .env.production
 ```
 
-Configura `APP_KEY`, `APP_URL`, las contraseñas de MySQL y las credenciales iniciales del administrador antes de continuar. Usa una clave de aplicación propia del entorno y consérvala entre despliegues.
+En producción conservo una `APP_KEY` permanente y preparo `APP_URL`, las contraseñas de MySQL, `PORTFOLIO_ADMIN_*` y las credenciales SMTP. Separé este Compose del de desarrollo: fuerza `APP_DEBUG=false`, comparte la caché en base de datos e incluye worker y scheduler. La terminación HTTPS se configura fuera de estos archivos.
 
 ```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml build api
-docker compose --env-file .env.production -f docker-compose.prod.yml build ui
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
+docker compose --env-file .env.production -f docker-compose.prod.yml config --quiet
+docker compose --env-file .env.production -f docker-compose.prod.yml build api ui
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build db api
 docker compose --env-file .env.production -f docker-compose.prod.yml exec --user www-data api php artisan migrate --force --no-interaction
+# Solo en la primera instalación:
+docker compose --env-file .env.production -f docker-compose.prod.yml exec --user www-data api php artisan db:seed --force --no-interaction
+docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
 ```
 
-No combines este Compose con el de desarrollo. `API_IMAGE` y `UI_IMAGE` permiten seleccionar imágenes construidas fuera del servidor. El gateway publica únicamente el puerto 80; TLS no está configurado en estos archivos.
+Construyo imágenes que incluyen las dependencias y la UI compilada; `API_IMAGE` y `UI_IMAGE` me permiten usar imágenes preparadas fuera del servidor. Conservo los volúmenes y `APP_KEY` entre despliegues. Las credenciales de un MySQL ya inicializado requieren su propia actualización: cambiar `.env.production` no modifica ese usuario.
 
-Los límites de memoria suman 1280 MiB para los cuatro servicios. PHP-FPM admite hasta tres procesos y MySQL usa un buffer pool de 128 MiB. Es una configuración contenida para un servidor pequeño, no una estimación de capacidad bajo carga. Cache y sesiones usan archivos, y las colas son síncronas: escalar a varias réplicas requeriría revisar esas decisiones.
+## Repositorios y archivos locales
 
-La API y el Compose no utilizan variables laborales `PORTFOLIO_CAREER_*`. La trayectoria se obtiene exclusivamente de la base de datos.
+Uso `./sync-repos.sh "mensaje"` para sincronizar cambios ya revisados en los tres repositorios. Antes reviso todos los diffs, porque el script incluye los cambios pendientes, crea commits y hace push. Mantengo `init-projects.sh` y `.bat` para scaffolding; el arranque de estos clones sigue los pasos anteriores.
 
-`docker compose down` conserva los volúmenes. `down -v` los elimina. Cambiar una contraseña en el archivo de entorno tampoco cambia automáticamente el usuario de un volumen MySQL ya inicializado.
-
-## Archivos versionados y datos locales
-
-El workspace versiona la configuración necesaria para reproducir el entorno. El [`.gitignore`](.gitignore) excluye credenciales `.env`, dependencias, builds, cachés locales de Docker, logs, respaldos temporales y dumps de base de datos. Los archivos `.env.example` y `.env.production.example` se conservan como contratos de configuración; los datos persistentes viven en volúmenes Docker.
-
-## Sincronización de los tres repositorios
-
-[`sync-repos.sh`](sync-repos.sh) simplifica la publicación de cambios ya revisados:
-
-```bash
-./sync-repos.sh "docs: actualizar arquitectura y operación"
-```
-
-El script localiza el workspace desde su propia ruta, independientemente del directorio desde el que se invoque. Antes de modificar nada, comprueba los tres repositorios, la existencia del remoto `origin`, una rama activa y la ausencia de conflictos, merges o rebases incompletos.
-
-Recorre workspace, API y UI en ese orden. Si encuentra cambios, ejecuta `git add --all` y crea un commit con el mensaje indicado. Después hace `git push origin HEAD`, incluso cuando el árbol ya estaba limpio, para poder reintentar un push pendiente. Usa `set -euo pipefail` y termina ante el primer error.
-
-El script incluye todos los cambios pendientes, también archivos nuevos y eliminados. Revisa los tres diffs antes de usarlo. No hace pull, no resuelve conflictos y no publica los tres repositorios de forma atómica: un push anterior puede haber terminado cuando falla el siguiente.
+Dejo fuera de Git los `.env`, secretos, dependencias, builds, logs y dumps. Los [README de la API](felixsaucedo-api/README.md) y [de la UI](felixsaucedo-ui/README.md) describen sus contratos y configuración.
