@@ -1,33 +1,45 @@
 # portfolio-workspace
 
-Separé mi portafolio en tres repositorios: API, interfaz e infraestructura. Este workspace contiene Docker Compose, Nginx y los scripts para ejecutarlos juntos. Construyo la API y la UI por separado; si cambio el contrato JSON, reviso ambos repositorios.
+Mi sitio personal reúne mi experiencia, proyectos y CV, con contenido en español e inglés. En este repositorio guardo la configuración de Docker y los scripts que uso para trabajar con la API y la interfaz.
+
+El sitio está disponible en [felixsaucedo.com](https://felixsaucedo.com).
+
+## Organización
+
+Organizo el proyecto en tres repositorios: uno para la API, otro para la interfaz y este para ejecutarlos juntos.
 
 | Repositorio | Responsabilidad |
 | --- | --- |
-| [portfolio-workspace](https://github.com/FelixSaucedo/portfolio-workspace) | Docker Compose, gateway Nginx y operación conjunta. |
-| [felixsaucedo-api](https://github.com/FelixSaucedo/felixsaucedo-api) | Laravel 13 / PHP 8.4, contenido ES/EN, contactos y correo asíncrono. |
-| [felixsaucedo-ui](https://github.com/FelixSaucedo/felixsaucedo-ui) | Vue 3.5 / TypeScript / Vite 8 / Tailwind CSS 4. |
+| [portfolio-workspace](https://github.com/FelixSaucedo/portfolio-workspace) | Docker Compose para ejecutar los servicios y Nginx para dirigir las solicitudes. |
+| [felixsaucedo-api](https://github.com/FelixSaucedo/felixsaucedo-api) | Laravel 13 y PHP 8.4 para gestionar el contenido y los mensajes de contacto. |
+| [felixsaucedo-ui](https://github.com/FelixSaucedo/felixsaucedo-ui) | Vue 3.5 y TypeScript para la interfaz, Vite 8 para trabajar con ella y preparar su publicación, y Tailwind CSS 4 para los estilos. |
 
-Mantengo API y UI como clones independientes, excluidos del Git raíz. Cada uno conserva su historial y sus dependencias; este workspace no fija sus versiones mediante submódulos.
+Descargo la API y la UI dentro de esta carpeta, pero cada una mantiene su propio historial en Git. Si cambio los datos que entrega la API, también reviso cómo los usa la interfaz.
 
-## Servicios y red
+## Arquitectura
 
-Uso Nginx para servir UI y API bajo el mismo origen y evitar CORS en el flujo habitual. `/api/*` llega a Laravel mediante PHP-FPM, `/storage/*` sirve archivos públicos y el resto llega a la UI. En desarrollo trabajo con Vite y HMR; en producción sirvo la aplicación compilada.
+Uso Nginx para que la interfaz y la API compartan el mismo dominio. Nginx recibe las solicitudes y las dirige a la aplicación correspondiente, lo que simplifica la comunicación desde el navegador.
+
+Laravel gestiona el contenido y los contactos, y MySQL guarda los datos. Primero registro cada mensaje y después envío los correos en segundo plano, para que quien escribe no tenga que esperar al envío.
+
+Mientras trabajo en la interfaz, Vite muestra los cambios en el navegador sin que tenga que actualizar la página manualmente. Para publicar el sitio, preparo las imágenes de Docker con la API y la versión compilada de la interfaz.
+
+## Servicios y función
+
+Docker Compose ejecuta los servicios que necesita el sitio:
 
 | Servicio | Función |
 | --- | --- |
-| `gateway` | Nginx, puerto HTTP 80, headers de seguridad y límite API de 64 KB. |
-| `api` | PHP-FPM y Laravel. |
-| `ui` | Vite con HMR en desarrollo; Nginx y `dist/` en producción. |
-| `db` | MySQL 8.4 con volumen persistente. |
-| `contact-worker` | Procesa los correos de la cola `contacts`. |
-| `contact-scheduler` | Recupera cada minuto los despachos pendientes. |
+| `gateway` | Nginx recibe las solicitudes y las dirige a la interfaz o a la API. |
+| `api` | PHP-FPM ejecuta Laravel, que gestiona el contenido y los contactos. |
+| `ui` | Vite permite ver los cambios mientras trabajo; en producción, Nginx sirve la interfaz compilada. |
+| `db` | MySQL 8.4 guarda los datos en un volumen de Docker, para conservarlos al actualizar los contenedores. |
+| `contact-worker` | Envía los correos pendientes de la cola `contacts`. |
+| `contact-scheduler` | Revisa cada minuto si hay contactos cuyo envío de correos quedó pendiente. |
 
-MySQL local se publica únicamente en `127.0.0.1:3306`, con base `portfolio_db` y usuario `portfolio_user`. La contraseña está en `MYSQL_PASSWORD` del Compose local; Laravel se conecta a `db:3306`. Producción no publica MySQL al host.
+## Desarrollo local
 
-## Desarrollo
-
-Ejecuto PHP, Composer y Node en Docker para mantener las versiones del entorno. Para preparar el sitio necesito Git y Docker Compose con contenedores Linux:
+Trabajo con PHP, Composer y Node dentro de Docker. Así uso las mismas versiones sin tener que instalar cada herramienta por separado en mi equipo. Para ejecutar el proyecto necesito Git y Docker Compose con contenedores Linux.
 
 ```bash
 git clone https://github.com/FelixSaucedo/portfolio-workspace.git
@@ -37,7 +49,7 @@ git clone https://github.com/FelixSaucedo/felixsaucedo-ui.git
 cp felixsaucedo-api/.env.example felixsaucedo-api/.env
 ```
 
-Antes del primer arranque preparo `PORTFOLIO_ADMIN_*` y las credenciales `MAIL_USERNAME` / `MAIL_PASSWORD` de SMTP2GO en el `.env` de la API. El administrador inicial requiere una contraseña de al menos 16 caracteres. Uso `contacto@felixsaucedo.com` como remitente y como destinatario de las notificaciones del sitio.
+Antes de iniciar los servicios, completo la configuración del correo y del administrador en el `.env` de la API. Su archivo de ejemplo y su README indican qué valores necesito.
 
 ```bash
 docker compose up -d --build db api ui
@@ -47,83 +59,27 @@ docker compose exec api php artisan db:seed --no-interaction
 docker compose up -d
 ```
 
-Genero `APP_KEY` solo en la primera instalación. Artisan requiere que PHP-FPM esté disponible; el sitio se sirve en `http://localhost`.
+Después de estos pasos puedo abrir el sitio en `http://localhost`. Genero la clave de Laravel solo en la primera instalación y la conservo cuando actualizo el proyecto.
 
-Para actualizar el esquema o los textos del seeder:
+## Validación
 
-```bash
-docker compose exec api php artisan migrate --no-interaction
-docker compose exec api php artisan db:seed --class=PortfolioSeeder --no-interaction
-```
-
-El seeder sobrescribe sus registros, incluidas las ediciones manuales. Uso `migrate` para actualizar el esquema; `migrate:fresh` y `down -v` eliminan datos.
-
-## Pruebas y correo
+Uso estos comandos para revisar la configuración de Docker, ejecutar las pruebas y comprobar que la interfaz compila:
 
 ```bash
 docker compose config --quiet
-docker compose exec gateway nginx -t
 docker compose exec api php artisan test --compact
-docker compose exec api php artisan route:list --no-interaction
 docker compose exec ui npm test
 docker compose exec ui npm run build
 ```
 
-Las pruebas Laravel usan una base aislada. Las pruebas de contrato de la UI consultan la API real del stack.
+Las pruebas de Laravel usan una base de datos separada. Algunas pruebas de la interfaz consultan la API local para comprobar que los datos coinciden con lo esperado, por eso dejo los servicios activos al ejecutarlas.
 
-Guardo el contacto antes de encolar la alerta para mí y la confirmación para quien escribe. Si falla la cola, el mensaje queda disponible para recuperar el despacho. La API devuelve `201` con los jobs registrados o `202` con notificaciones pendientes; ninguno confirma entrega SMTP.
+## Despliegue
 
-```bash
-docker compose logs --tail=100 contact-worker contact-scheduler
-docker compose exec api php artisan contacts:dispatch-pending --no-interaction
-docker compose exec api php artisan queue:failed --no-interaction
-docker compose exec api php artisan queue:retry all --no-interaction
-```
+Publico mi portafolio en AWS con Docker. Caddy se encarga de HTTPS para que el sitio se pueda abrir mediante una conexión cifrada, y Nginx dirige las solicitudes hacia la interfaz o la API. Uso configuraciones distintas para trabajar en mi equipo y para publicar el sitio.
 
-Tras cambiar configuración de correo o código del worker:
+## Trabajo con los repositorios
 
-```bash
-docker compose exec api php artisan config:clear --no-interaction
-docker compose restart contact-worker contact-scheduler
-```
+Uso `sync-repos.sh` para guardar los cambios en commits y subirlos a GitHub en los tres repositorios. Como el script incluye todos los cambios pendientes, primero reviso qué archivos modifiqué en cada uno.
 
-## Producción
-
-```bash
-cp .env.production.example .env.production
-```
-
-En producción conservo una `APP_KEY` permanente y preparo `APP_URL`, las contraseñas de MySQL, `PORTFOLIO_ADMIN_*` y las credenciales SMTP. Separé este Compose del de desarrollo: fuerza `APP_DEBUG=false`, comparte la caché en base de datos e incluye worker y scheduler. La terminación HTTPS se configura fuera de estos archivos.
-
-```bash
-docker compose --env-file .env.production -f docker-compose.prod.yml config --quiet
-docker compose --env-file .env.production -f docker-compose.prod.yml build api ui
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build db api
-docker compose --env-file .env.production -f docker-compose.prod.yml exec --user www-data api php artisan migrate --force --no-interaction
-# Solo en la primera instalación:
-docker compose --env-file .env.production -f docker-compose.prod.yml exec --user www-data api php artisan db:seed --force --no-interaction
-docker compose --env-file .env.production -f docker-compose.prod.yml up -d --no-build
-```
-
-Construyo imágenes que incluyen las dependencias y la UI compilada; `API_IMAGE` y `UI_IMAGE` me permiten usar imágenes preparadas fuera del servidor. Conservo los volúmenes y `APP_KEY` entre despliegues. Las credenciales de un MySQL ya inicializado requieren su propia actualización: cambiar `.env.production` no modifica ese usuario.
-
-### Lightsail con Caddy existente
-
-En el servidor uso también `docker-compose.caddy.yml`. El gateway se conecta a la red externa `web` con el alias `felix-portfolio-gateway`; API, UI y MySQL permanecen en la red del portafolio. Este override retira el puerto 80 del host y limita el conjunto a 1 GiB de memoria como máximo. Esos límites no reservan memoria ni cubren el consumo de los builds.
-
-Configuro `APP_URL` y `VITE_SITE_URL` como `https://felixsaucedo.com`, y `CADDY_PROXY_IP` con la IP de Caddy en `web`. Nginx acepta la IP de visitante enviada por ese proxy y comunica HTTPS a PHP-FPM. Si recreo Caddy, compruebo su IP y recreo el gateway si cambió.
-
-```bash
-docker inspect caddy --format '{{with index .NetworkSettings.Networks "web"}}{{.IPAddress}}{{end}}'
-docker compose --env-file .env.production -f docker-compose.prod.yml -f docker-compose.caddy.yml config --quiet
-```
-
-Uso ambos archivos Compose en **todos** los comandos de este despliegue. Construyo `api` y `ui` por separado para reducir el pico de memoria y sigo el orden de migraciones del apartado anterior. Antes de cambiar el dominio compruebo desde Caddy que el gateway sirve `/` y `/api/v1/portfolio`.
-
-En el bloque `felixsaucedo.com` sustituyo el servidor estático y la redirección de rutas por `reverse_proxy felix-portfolio-gateway:80`. Conservo el bloque de `entre-nosotros` y redirijo `www` al dominio principal preservando `{uri}`. Respaldo el Caddyfile, valido la nueva configuración y la recargo; para volver al HTML anterior restauro ese archivo y lo recargo. No elimino `/opt/apps/main-site` ni los volúmenes de Caddy.
-
-## Repositorios y archivos locales
-
-Uso `./sync-repos.sh "mensaje"` para sincronizar cambios ya revisados en los tres repositorios. Antes reviso todos los diffs, porque el script incluye los cambios pendientes, crea commits y hace push. Mantengo `init-projects.sh` y `.bat` para scaffolding; el arranque de estos clones sigue los pasos anteriores.
-
-Dejo fuera de Git los `.env`, secretos, dependencias, builds, logs y dumps. Los [README de la API](felixsaucedo-api/README.md) y [de la UI](felixsaucedo-ui/README.md) describen sus contratos y configuración.
+Dejo fuera de Git los archivos `.env`, las credenciales, las dependencias instaladas y los archivos generados al compilar. Los [README de la API](https://github.com/FelixSaucedo/felixsaucedo-api#readme) y [de la UI](https://github.com/FelixSaucedo/felixsaucedo-ui#readme) explican cómo trabajar con cada aplicación.
